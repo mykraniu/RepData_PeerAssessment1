@@ -11,10 +11,13 @@ output:
 
 ### 1. Code for reading in the dataset and/or processing the data
 
-```{r echo=TRUE}
+```{r echo=TRUE, message=FALSE}
 
 setwd('~/git/RepData_PeerAssessment1')
 rm(list=ls())
+
+options(scipen=999)
+options(digits=2)
 
 # Libraries
 library(ggplot2)
@@ -23,9 +26,26 @@ library(lubridate)
 
 # 1. Load data
 activity <- read.csv('activity.csv')
+
+
+# Add the wday and wday wend variables
+weekdays <- c('Mon','Tue','Wed','Thu','Fri')
+
 # Set Date to be a date object
 activity <- activity %>%
-  mutate( date=as.Date(date) )
+  mutate ( date=as.Date(date) )
+
+
+# Transform data to represent steps taken per day : (ignoring NAs)
+activity.steps.per.day <- activity %>%
+  group_by(date) %>%
+  summarize(steps=sum(steps,na.rm=TRUE))
+
+
+# Transform data to represent average steps taken per interval : (ignoring NAs)
+activity.interval.mean.steps <- activity %>%
+  group_by(interval) %>%
+  summarize(steps=mean(steps,na.rm=TRUE))
 
 ```
 
@@ -33,9 +53,14 @@ activity <- activity %>%
 
 
 ```{r echo=TRUE}
+
 # 2. Plot histogram of the number of steps each day
-g <- ggplot( data=activity, aes(date,steps) )
-g + geom_bar( stat="sum" ) + labs( title="Steps taken each day", x="Date", y="Steps" )
+nbins <- nclass.FD(activity.steps.per.day$steps)
+g <- ggplot( data=activity.steps.per.day, aes(steps) )
+g + geom_histogram( col="red", fill="grey", alpha=.7, bins=nbins ) +
+    labs( title="Histogram of Steps Taken Per Day", x="Steps Taken Per Day", y="Count of Days") +
+    scale_y_continuous(labels = scales::comma)
+
 ```
   
 
@@ -43,15 +68,15 @@ g + geom_bar( stat="sum" ) + labs( title="Steps taken each day", x="Date", y="St
 ## What is mean total number of steps taken per day?
 
 
-```{r}
-# 3. Get mean and median of steps each day (across 5 minute intervals)
-activity.means <- activity %>%
-  filter( !is.na(steps) ) %>%
-  group_by( date ) %>%
-  summarize( mean.steps=mean(steps), median.steps=median(steps) )
+```{r echo=TRUE}
+# 3. Get mean and median of steps each day
+mean.steps <- mean(activity.steps.per.day$steps)
+median.steps <- median(activity.steps.per.day$steps)
 
-print(activity.means)
 ```
+
+Mean Steps Taken per Day : `r mean.steps`  
+Median Steps Taken Per Day : `r median.steps`  
 
 
 ## What is the average daily activity pattern?
@@ -59,9 +84,11 @@ print(activity.means)
 ### 4. Time series plot of the average number of steps taken
 
 ```{r echo=TRUE}
+# Get a list of activity means
+
 # 4. Plot the average steps per day for a 5 minute interval
-g <- ggplot( data=activity.means, aes(date,mean.steps) )
-g + geom_line() + labs( title="Average steps taken each day during a 5 minute period", x="Date", y="Average Steps" )
+g <- ggplot( data=activity.interval.mean.steps, aes(interval,steps) )
+g + geom_line() + labs( title="Average steps taken per 5 minute interval", x="Interval", y="Average Steps" )
 
 ```
   
@@ -69,18 +96,11 @@ g + geom_line() + labs( title="Average steps taken each day during a 5 minute pe
 ### 5. The 5-minute interval that, on average, contains the maximum number of steps
 ```{r echo=TRUE}
 # 5. The 5-minute interval that, on average, contains the maximum number of steps
-activity.interval.means <- activity %>%
-  filter(!is.na(steps)) %>%
-  group_by(interval) %>%
-  summarize( mean.steps=mean(steps) )
+activity.interval.max.avg <- activity.interval.mean.steps %>%
+  slice(which.max(steps))
 
-activity.interval.max <- activity.interval.means %>%
-  filter( mean.steps==max(mean.steps) )
-  
-
-print('Interval With the maximum average number of steps')
-print(activity.interval.max$interval)
 ```
+Interval With the maximum average number of steps : `r activity.interval.max.avg$interval`
 
 
 
@@ -90,34 +110,77 @@ print(activity.interval.max$interval)
 ### 6. Code to describe and show a strategy for imputing missing data
 
 ```{r echo=TRUE}
+
+# Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with 
+                                                                        
 # lookup- missing values
 activity.missing.vals <- activity %>%
   filter(is.na(steps))
 
+# Calculate the number of NA Rows
+na.count <- nrow(activity.missing.vals)
+
+
 
 # * Mean: the mean of the observed values for that variable
-#    We can use the mean data points from either interval or from date
-#    We cannot use the mean data points from the date as only a fraction of dates have missing values.
-#    We will use the mean data poiints from interval as this gives a better sample.
+#    We will use the mean data poiints from interval
 
 # Convert interval means to a named numeric that we can lookup
-int.m <- activity.interval.means$mean.steps
-names(int.m) <- activity.interval.means$interval
+int.m <- activity.interval.mean.steps$steps
+names(int.m) <- activity.interval.mean.steps$interval
 
-# Fill in the empty steps with the mean
-activity[is.na(activity$steps),'steps'] <- int.m[as.character(activity[is.na(activity$steps),'interval'])] 
+# Fill in the empty steps with the mean from same interval
+activity.new <- activity
+activity.new[is.na(activity$steps),'steps'] <- int.m[as.character(activity[is.na(activity$steps),'interval'])] 
+
+# Transform data to represent steps taken per day : (ignoring NAs)
+activity.steps.per.day.new <- activity.new %>%
+  group_by(date) %>%
+  summarize(steps=sum(steps,na.rm=TRUE))
 
 ```
-
+Number of rows with missing step count : `r na.count`
 
 ### 7. Histogram of the total number of steps taken each day after missing values are imputed
 
+```{r echo=TRUE, messages=FALSE}
+  
+# 2. Plot histogram of the number of steps each day
+nbins <- nclass.FD(activity.steps.per.day$steps)
+g <- ggplot( data=activity.steps.per.day.new, aes(steps) )
+g + geom_histogram( col="red", fill="grey", alpha=.7, bins=nbins ) +
+    labs( title="Histogram of Steps Taken Per Day (Post Impute)", x="Steps Taken Per Day", y="Count of Days") +
+    scale_y_continuous(labels = scales::comma)
+
+```
+
 ```{r echo=TRUE}
 
-# 7. Histogram of the total number of steps taken each day after missing values are imputed
-g <- ggplot( data=activity, aes(date,steps) )
-g + geom_bar( stat="sum" ) + labs( title="Steps taken each day (after imputing)", x="Date", y="Steps" )
+# Calculate and report the mean and median total number of steps taken per day.
+
+# 3. Get mean and median of steps each day
+mean.steps.new <- mean(activity.steps.per.day.new$steps)
+median.steps.new <- median(activity.steps.per.day.new$steps)
+
 ```
+
+
+### Pre-Impute Values
+Mean Steps Taken per Day : `r mean.steps`  
+Median Steps Taken Per Day : `r median.steps`  
+
+### Post-Impute Values
+Mean Steps Taken per Day : `r mean.steps.new`  
+Median Steps Taken Per Day : `r median.steps.new`  
+
+
+<!-- Do these values differ from the estimates from the first part of the assignment? -->
+Both the mean and median values have increased from the pre-impute values  
+
+<!-- What is the impact of imputing missing data on the estimates of the total daily number of steps? -->
+The post-impute values of mean and median are both identical  
+
+
 
 
 
@@ -130,17 +193,19 @@ g + geom_bar( stat="sum" ) + labs( title="Steps taken each day (after imputing)"
 ```{r echo=TRUE}
 # 8. Add a weekday/weekend label to activity.interval.means
 weekdays <- c('Mon','Tue','Wed','Thu','Fri')
-activity <- activity %>%
+activity.new <- activity.new %>%
   mutate ( wday = lubridate::wday(date,label=TRUE) ) %>%
-  mutate ( wday.wend = ifelse( wday %in% weekdays, 'weekday', 'weekend' ) )
+  mutate ( wday.wend = factor(ifelse( wday %in% weekdays, 'weekday', 'weekend' )) )
 
 # The 5-minute interval that, on average, contains the maximum number of steps
-activity.interval.means <- activity %>%
+activity.interval.means <- activity.new %>%
   group_by(interval,wday.wend) %>%
-  summarize( mean.steps=mean(steps) )
+  summarize( mean.steps=mean(steps,na.rm=TRUE) )
 
 g <- ggplot( data=activity.interval.means, aes(interval,mean.steps) )
 g + geom_bar( stat="sum" ) + 
   facet_grid(.~wday.wend) +
-  labs( title="Average Steps taken each Interval\nWeekday vs Weekend", x="Interval", y="Steps" )
+  labs( title="Average Steps taken each Interval\nWeekday vs Weekend", x="Interval", y="Steps" ) +
+  theme(legend.position="none")
+
 ```
